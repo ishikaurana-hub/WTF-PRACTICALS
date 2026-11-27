@@ -1,0 +1,271 @@
+# WTF-PRACTICALS
+{
+  "name": "central-city-library",
+  "version": "1.0.0",
+  "description": "Central City Library portal with Node.js, Express, routing, session management, and authentication",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.18.0"
+  }
+}
+
+const express = require("express");
+const session = require("express-session");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Parse URL-encoded form bodies (req.body)
+app.use(express.urlencoded({ extended: false }));
+
+// Configure session middleware
+app.use(
+  session({
+    name: "library.sid",
+    secret: "central-city-library-secret-key",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      maxAge: 1000 * 60 * 30 // 30 minutes
+    }
+  })
+);
+
+// Predefined library member credentials
+const REGISTERED_MEMBERS = [
+  { username: "student1", password: "Password@123", name: "Aarav Patel", role: "Student" },
+  { username: "staff1", password: "Staff@123", name: "Meera Shah", role: "Library Staff" }
+];
+
+// Middleware to protect authenticated routes
+function requireAuth(req, res, next) {
+  if (req.session && req.session.user) {
+    return next();
+  }
+  return res.redirect("/login?error=auth_required");
+}
+
+// Helper for consistent HTML page layout
+function renderPage(title, user, contentHtml) {
+  const navLinks = `
+    <nav style="display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
+      <a href="/">Home</a>
+      <a href="/about">About</a>
+      <a href="/dashboard">Dashboard</a>
+      ${
+        user
+          ? `<form action="/logout" method="POST" style="display:inline;margin:0;">
+               <button type="submit">Logout (${escapeHtml(user.username)})</button>
+             </form>`
+          : `<a href="/login">Login</a>`
+      }
+    </nav>
+  `;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(title)} - Central City Library</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 820px; margin: 32px auto; padding: 0 16px; background: #f8fafc; color: #0f172a; }
+    .box { background: #fff; padding: 24px; border-radius: 8px; border: 1px solid #cbd5e1; }
+    a { color: #0369a1; text-decoration: none; font-weight: 600; }
+    a:hover { text-decoration: underline; }
+    .field { margin-bottom: 14px; }
+    label { display: block; font-weight: 600; margin-bottom: 4px; }
+    input { width: 100%; max-width: 340px; padding: 8px 10px; border: 1px solid #94a3b8; border-radius: 4px; }
+    button { padding: 8px 14px; background: #0369a1; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+    button:hover { background: #075985; }
+    .alert-err { background: #fee2e2; color: #991b1b; padding: 10px 12px; border-radius: 4px; margin-bottom: 14px; }
+    .alert-ok { background: #dcfce7; color: #166534; padding: 10px 12px; border-radius: 4px; margin-bottom: 14px; }
+    .meta { color: #475569; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Central City Library</h1>
+    ${navLinks}
+    ${contentHtml}
+  </div>
+</body>
+</html>`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// 1. Home Route
+app.get("/", (req, res) => {
+  const user = req.session.user || null;
+  res.status(200).send(
+    renderPage(
+      "Home",
+      user,
+      `
+      <h2>Welcome to Central City Library Portal</h2>
+      <p>Browse digital membership information or log in to access protected member resources.</p>
+      <p class="meta">Request Method: <strong>${escapeHtml(req.method)}</strong> | Path: <strong>${escapeHtml(req.originalUrl)}</strong></p>
+      <p>${
+        user
+          ? `You are signed in as <strong>${escapeHtml(user.name)}</strong>. Go to <a href="/dashboard">Dashboard</a>.`
+          : `Please <a href="/login">Login</a> with your student or staff credentials to open the Dashboard.`
+      }</p>
+      `
+    )
+  );
+});
+
+// 2. About Route
+app.get("/about", (req, res) => {
+  res.status(200).send(
+    renderPage(
+      "About",
+      req.session.user || null,
+      `
+      <h2>About Central City Library</h2>
+      <p>Central City Library provides digital catalog access, study room bookings, and e-journal resources for registered students and staff.</p>
+      <ul>
+        <li><strong>Timings:</strong> Monday – Saturday, 8:00 AM to 8:00 PM</li>
+        <li><strong>Support:</strong> library-help@centralcity.edu</li>
+      </ul>
+      `
+    )
+  );
+});
+
+// 3. Login Route (GET)
+app.get("/login", (req, res) => {
+  if (req.session && req.session.user) {
+    return res.redirect("/dashboard");
+  }
+
+  let banner = "";
+  if (req.query.error === "auth_required") {
+    banner = `<div class="alert-err">Please log in first to access the protected Dashboard.</div>`;
+  } else if (req.query.error === "invalid_creds") {
+    banner = `<div class="alert-err">Invalid username or password. Please try again.</div>`;
+  } else if (req.query.status === "logged_out") {
+    banner = `<div class="alert-ok">You have been logged out and your session has ended.</div>`;
+  }
+
+  res.status(200).send(
+    renderPage(
+      "Login",
+      null,
+      `
+      <h2>Member Login</h2>
+      ${banner}
+      <form action="/login" method="POST">
+        <div class="field">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" required />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required />
+        </div>
+        <button type="submit">Login</button>
+      </form>
+      <p class="meta" style="margin-top:16px;">
+        Demo Credentials:<br />
+        Student: <code>student1</code> / <code>Password@123</code><br />
+        Staff: <code>staff1</code> / <code>Staff@123</code>
+      </p>
+      `
+    )
+  );
+});
+
+// 4. Login Route (POST) - Authenticate & create session
+app.post("/login", (req, res) => {
+  const username = (req.body.username || "").trim();
+  const password = req.body.password || "";
+
+  const member = REGISTERED_MEMBERS.find(
+    (m) => m.username === username && m.password === password
+  );
+
+  if (!member) {
+    return res.status(401).redirect("/login?error=invalid_creds");
+  }
+
+  req.session.user = {
+    username: member.username,
+    name: member.name,
+    role: member.role,
+    loginTime: new Date().toISOString()
+  };
+
+  return res.redirect("/dashboard");
+});
+
+// 5. Protected Dashboard Route
+app.get("/dashboard", requireAuth, (req, res) => {
+  const { name, username, role, loginTime } = req.session.user;
+
+  res.status(200).send(
+    renderPage(
+      "Dashboard",
+      req.session.user,
+      `
+      <h2>Member Dashboard</h2>
+      <p>Welcome back, <strong>${escapeHtml(name)}</strong> (<code>${escapeHtml(username)}</code>).</p>
+      <p class="meta">Role: <strong>${escapeHtml(role)}</strong> | Session ID: <code>${escapeHtml(req.sessionID)}</code></p>
+      <p class="meta">Logged in at: ${escapeHtml(loginTime)}</p>
+      <h3>Protected Library Resources</h3>
+      <ul>
+        <li>Digital Research Journals &amp; E-Books</li>
+        <li>Current Borrowed Books &amp; Due Date Reminders</li>
+        <li>Reading Room Reservation</li>
+      </ul>
+      `
+    )
+  );
+});
+
+// 6. Logout Route (supports both POST and GET for convenience)
+function handleLogout(req, res) {
+  if (!req.session) {
+    return res.redirect("/login?status=logged_out");
+  }
+
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("Session destroy error:", err);
+      return res.status(500).send("Unable to log out cleanly.");
+    }
+    res.clearCookie("library.sid");
+    return res.redirect("/login?status=logged_out");
+  });
+}
+
+app.post("/logout", handleLogout);
+app.get("/logout", handleLogout);
+
+// 404 Fallback Route
+app.use((req, res) => {
+  res.status(404).send(
+    renderPage(
+      "Not Found",
+      req.session ? req.session.user : null,
+      `<h2>404 - Page Not Found</h2><p>The route <code>${escapeHtml(req.originalUrl)}</code> does not exist.</p><p><a href="/">Return Home</a></p>`
+    )
+  );
+});
+
+app.listen(PORT, () => {
+  console.log(`Central City Library server running at http://localhost:${PORT}`);
+});
+
